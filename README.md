@@ -17,6 +17,7 @@ In a new terminal:
 ```
 conda env create -f benchmarking.env.yml
 conda activate ipfs-benchmarking
+opentelemetry-bootstrap -a install
 python benchmarking.py
 ```
 

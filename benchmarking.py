@@ -2,8 +2,27 @@ import os
 import time
 import json
 import requests
+import asyncio
 import xarray as xr
 import matplotlib.pyplot as plt
+
+from opentelemetry import trace
+# from opentelemetry.exporter.jaeger.thrift  import JaegerExporter
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.instrumentation.aiohttp_client import (AioHttpClientInstrumentor)
+trace.set_tracer_provider(
+    TracerProvider(
+        resource=Resource.create({SERVICE_NAME: "ipldstore-benchmarking"})
+    )
+)
+otlp_exporter = OTLPSpanExporter(endpoint="localhost:4317", insecure=True)
+span_processor = BatchSpanProcessor(otlp_exporter)
+trace.get_tracer_provider().add_span_processor(span_processor)
+tracer = trace.get_tracer(__name__)
+AioHttpClientInstrumentor().instrument()
 
 import ipldstore
 import ipldstore_v1
@@ -48,35 +67,53 @@ def get_non_hamt_cid() -> str:
     return zarr_cid
 
 
-def get_data_from_cid_with_library(library, cid) -> xr.DataArray:
+def get_data_from_cid_with_library(library, cid, output_buffer) -> xr.DataArray:
+
     m = library.get_ipfs_mapper(
-      host = 'http://0.0.0.0:5001',
-      max_nodes_per_level = 10000,
-      chunker = 'size-262144',
-      should_async_get = True,
+        host = 'http://0.0.0.0:5001',
+        max_nodes_per_level = 10000,
+        chunker = 'size-262144',
+        should_async_get = True,
     )
 
+    start = time.time()
+    print('Setting root')
     m.set_root(cid)
+    output_buffer += f'Time to set root: {time.time() - start}\n'
+    print(f'Time to set root: {time.time() - start}')
+    
+    span = tracer.start_span("python:open_zarr")
+    checkpoint = time.time()
+    with trace.use_span(span, end_on_exit=True):
+    # async def async_wrapper(async_func, args):
+    #     result = await asyncio.to_thread(async_func, *args)
+    #     return result
 
-    ds = xr.open_zarr(m, chunks=None)
-    return ds
+    # ds = await async_wrapper(xr.open_zarr, (m,))
+        ds = xr.open_zarr(m)
+    # ds = xr.open_zarr(m)
+    output_buffer += f'Time to open zarr: {time.time() - checkpoint}\n'
+    return ds, output_buffer
 
 
-def read_data(cid: str = None) -> str:
+def read_data(cid: str = None, output_buffer: str = "") -> str:
     if cid is None:
         print('Testing HAMT')
-        xar = get_data_from_cid_with_library(ipldstore, HAMT_CID)
+        output_buffer += 'HAMT results\n'
+        xar, output_buffer = get_data_from_cid_with_library(ipldstore, HAMT_CID, output_buffer=output_buffer)
     else:
         print('Testing Zarr with given CID')
-        xar = get_data_from_cid_with_library(ipldstore_v1, cid)
-        print('error')
+        output_buffer += 'Zarr results\n'
+        xar, output_buffer = get_data_from_cid_with_library(ipldstore_v1, cid, output_buffer=output_buffer)
+    print('got data')
     start = time.time()
     x = xar.sel(latitude=40.25, longitude=-120.25, time=slice("2005-01-01", "2010-12-31")).tp.values
-    print(f'Elapsed time: {time.time() - start}')
+    print(f'Select time: {time.time() - start}')
+    output_buffer += f'Select time: {time.time() - start}\n'
 
     number_bytes = xar.sel(latitude=40.25, longitude=-120.25, time=slice("2005-01-01", "2010-12-31")).nbytes
     print(f'Number of bytes: {number_bytes}')
-    return xar
+    return xar, output_buffer
 
 
 def display_data(ds) -> None:
@@ -89,20 +126,24 @@ def display_data(ds) -> None:
 if __name__ == '__main__':
     set_gateway_address(GATEWAY_ADDRESS)
     start = time.time()
+    
+    collect_garbage()
+    refresh_peer(HAMT_PEER)
+    hamt_ds, output_buffer = read_data()
+    # hamt_ds = asyncio.run(read_data())
+    # print(f'HAMT total time: {time.time() - start}')
+    # display_data(hamt_ds)
+
+    # checkpoint = time.time()
 
     collect_garbage()
     refresh_peer(ZARR_PEER)
     zarr_cid = get_non_hamt_cid()
-    zarr_ds = read_data(zarr_cid)
-    print(f'Zarr retrieval time: {time.time() - start}')
-    display_data(zarr_ds)
-    
-    checkpoint = time.time()
-    collect_garbage()
-    refresh_peer(HAMT_PEER)
-    hamt_ds = read_data()
-    print(f'HAMT retrieval time: {time.time() - checkpoint}')
-    display_data(hamt_ds)
+    zarr_ds, output_buffer = read_data(zarr_cid, output_buffer=output_buffer)
+    # zarr_ds = asyncio.run(read_data(zarr_cid))
+    # print(f'Zarr total time: {time.time() - checkpoint}')
+    # display_data(zarr_ds)
 
     print(f'Total time: {time.time() - start}')
+    print(output_buffer)
     print('Done!')
