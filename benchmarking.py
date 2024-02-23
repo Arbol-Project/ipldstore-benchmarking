@@ -9,27 +9,27 @@ import matplotlib.pyplot as plt
 # import cProfile
 # import pstats
 
-from opentelemetry import trace
-# from opentelemetry.exporter.jaeger.thrift  import JaegerExporter
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk.resources import SERVICE_NAME, Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.instrumentation.aiohttp_client import (AioHttpClientInstrumentor)
-# from opentelemetry.instrumentation.asyncio import (AsyncioInstrumentor)
-from opentelemetry.instrumentation.requests import (RequestsInstrumentor)
-trace.set_tracer_provider(
-    TracerProvider(
-        resource=Resource.create({SERVICE_NAME: 'ipldstore-benchmarking'})
-    )
-)
-otlp_exporter = OTLPSpanExporter(endpoint='192.168.1.151:4317', insecure=True)
-span_processor = BatchSpanProcessor(otlp_exporter)
-trace.get_tracer_provider().add_span_processor(span_processor)
-tracer = trace.get_tracer(__name__)
-AioHttpClientInstrumentor().instrument()
-# AsyncioInstrumentor().instrument()
-RequestsInstrumentor().instrument()
+# from opentelemetry import trace
+# # from opentelemetry.exporter.jaeger.thrift  import JaegerExporter
+# from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+# from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+# from opentelemetry.sdk.trace import TracerProvider
+# from opentelemetry.sdk.trace.export import BatchSpanProcessor
+# from opentelemetry.instrumentation.aiohttp_client import (AioHttpClientInstrumentor)
+# # from opentelemetry.instrumentation.asyncio import (AsyncioInstrumentor)
+# from opentelemetry.instrumentation.requests import (RequestsInstrumentor)
+# trace.set_tracer_provider(
+#     TracerProvider(
+#         resource=Resource.create({SERVICE_NAME: 'ipldstore-benchmarking'})
+#     )
+# )
+# otlp_exporter = OTLPSpanExporter(endpoint='192.168.1.151:4317', insecure=True)
+# span_processor = BatchSpanProcessor(otlp_exporter)
+# trace.get_tracer_provider().add_span_processor(span_processor)
+# tracer = trace.get_tracer(__name__)
+# AioHttpClientInstrumentor().instrument()
+# # AsyncioInstrumentor().instrument()
+# RequestsInstrumentor().instrument()
 
 import ipldstore
 import ipldstore_v1
@@ -93,9 +93,9 @@ def get_data_from_cid_with_library(library, cid, output_buffer, tag) -> xr.DataA
     print(f'Time to set root: {time_to_set_root}')
     
     start = time.time()
-    span = tracer.start_span(f'{tag}:open_zarr')
-    with trace.use_span(span, end_on_exit=True):
-        ds = xr.open_zarr(m)
+    # span = tracer.start_span(f'{tag}:open_zarr')
+    # with trace.use_span(span, end_on_exit=True):
+    ds = xr.open_zarr(m)
     output_buffer += f'Time to open zarr: {time.time() - start}\n'
     return ds, output_buffer
 
