@@ -9,23 +9,27 @@ import matplotlib.pyplot as plt
 # import cProfile
 # import pstats
 
-# from opentelemetry import trace
-# # from opentelemetry.exporter.jaeger.thrift  import JaegerExporter
-# from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-# from opentelemetry.sdk.resources import SERVICE_NAME, Resource
-# from opentelemetry.sdk.trace import TracerProvider
-# from opentelemetry.sdk.trace.export import BatchSpanProcessor
-# from opentelemetry.instrumentation.aiohttp_client import (AioHttpClientInstrumentor)
-# trace.set_tracer_provider(
-#     TracerProvider(
-#         resource=Resource.create({SERVICE_NAME: 'ipldstore-benchmarking'})
-#     )
-# )
-# otlp_exporter = OTLPSpanExporter(endpoint='localhost:4317', insecure=True)
-# span_processor = BatchSpanProcessor(otlp_exporter)
-# trace.get_tracer_provider().add_span_processor(span_processor)
-# tracer = trace.get_tracer(__name__)
-# AioHttpClientInstrumentor().instrument()
+from opentelemetry import trace
+# from opentelemetry.exporter.jaeger.thrift  import JaegerExporter
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.instrumentation.aiohttp_client import (AioHttpClientInstrumentor)
+# from opentelemetry.instrumentation.asyncio import (AsyncioInstrumentor)
+from opentelemetry.instrumentation.requests import (RequestsInstrumentor)
+trace.set_tracer_provider(
+    TracerProvider(
+        resource=Resource.create({SERVICE_NAME: 'ipldstore-benchmarking'})
+    )
+)
+otlp_exporter = OTLPSpanExporter(endpoint='192.168.1.151:4317', insecure=True)
+span_processor = BatchSpanProcessor(otlp_exporter)
+trace.get_tracer_provider().add_span_processor(span_processor)
+tracer = trace.get_tracer(__name__)
+AioHttpClientInstrumentor().instrument()
+# AsyncioInstrumentor().instrument()
+RequestsInstrumentor().instrument()
 
 import ipldstore
 import ipldstore_v1
@@ -71,7 +75,7 @@ def get_non_hamt_cid() -> str:
 
 
 # async def get_data_from_cid_with_library(library, cid, output_buffer) -> xr.DataArray:
-def get_data_from_cid_with_library(library, cid, output_buffer) -> xr.DataArray:
+def get_data_from_cid_with_library(library, cid, output_buffer, tag) -> xr.DataArray:
 
     m = library.get_ipfs_mapper(
         host = 'http://0.0.0.0:5001',
@@ -81,20 +85,17 @@ def get_data_from_cid_with_library(library, cid, output_buffer) -> xr.DataArray:
     )
 
     start = time.time()
-    m.set_root(cid)
+    span = tracer.start_span(f'{tag}:set_root')
+    with trace.use_span(span, end_on_exit=True):
+        m.set_root(cid)
     time_to_set_root = time.time() - start
     output_buffer += f'Time to set root: {time_to_set_root}\n'
     print(f'Time to set root: {time_to_set_root}')
     
     start = time.time()
-    # span = tracer.start_span('python:open_zarr')
-    # with trace.use_span(span, end_on_exit=True):
-        # async def async_wrapper(async_func, args):
-        #     result = await asyncio.to_thread(async_func, *args)
-        #     return result
-
-        # ds = await async_wrapper(xr.open_zarr, (m,))
-    ds = xr.open_zarr(m)
+    span = tracer.start_span(f'{tag}:open_zarr')
+    with trace.use_span(span, end_on_exit=True):
+        ds = xr.open_zarr(m)
     output_buffer += f'Time to open zarr: {time.time() - start}\n'
     return ds, output_buffer
 
@@ -102,14 +103,18 @@ def get_data_from_cid_with_library(library, cid, output_buffer) -> xr.DataArray:
 # async def read_data(cid: str = None, output_buffer: str = '') -> str:
 def read_data(cid: str = None, output_buffer: str = '') -> str:
     if cid is None:
+        tag = 'hamt'
         output_buffer += 'HAMT results\n'
         # xar, output_buffer = await get_data_from_cid_with_library(ipldstore, HAMT_CID, output_buffer=output_buffer)
-        xar, output_buffer = get_data_from_cid_with_library(ipldstore, HAMT_CID, output_buffer=output_buffer)
+        xar, output_buffer = get_data_from_cid_with_library(ipldstore, HAMT_CID, output_buffer=output_buffer, tag=tag)
     else:
         output_buffer += 'Zarr results\n'
+        tag = 'zarr'
         # xar, output_buffer = await get_data_from_cid_with_library(ipldstore_v1, cid, output_buffer=output_buffer)
-        xar, output_buffer = get_data_from_cid_with_library(ipldstore_v1, cid, output_buffer=output_buffer)
+        xar, output_buffer = get_data_from_cid_with_library(ipldstore_v1, cid, output_buffer=output_buffer, tag=tag)
     start = time.time()
+    # span = tracer.start_span('python:sel_values')
+    # with trace.use_span(span, end_on_exit=True):
     x = xar.sel(latitude=40.25, longitude=-120.25, time=slice('2005-01-01', '2010-12-31')).tp.values
     output_buffer += f'Get Values time: {time.time() - start}\n'
 
@@ -136,12 +141,12 @@ def main():
     # hamt_ds, output_buffer = asyncio.run(read_data(output_buffer=output_buffer))
     # display_data(hamt_ds)
 
-    # collect_garbage()
-    # refresh_peer(ZARR_PEER)
-    # zarr_cid = get_non_hamt_cid()
-    # zarr_ds, output_buffer = read_data(zarr_cid, output_buffer=output_buffer)
-    # # zarr_ds, output_buffer = asyncio.run(read_data(zarr_cid, output_buffer=output_buffer))
-    # # display_data(zarr_ds)
+    collect_garbage()
+    refresh_peer(ZARR_PEER)
+    zarr_cid = get_non_hamt_cid()
+    zarr_ds, output_buffer = read_data(zarr_cid, output_buffer=output_buffer)
+    # zarr_ds, output_buffer = asyncio.run(read_data(zarr_cid, output_buffer=output_buffer))
+    # display_data(zarr_ds)
 
     print(f'\nTotal time: {time.time() - start}')
     print(output_buffer)
