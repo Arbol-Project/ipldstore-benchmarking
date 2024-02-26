@@ -102,14 +102,26 @@ def get_data_from_cid(cid, output_buffer, tag):
 
 
 def read_data(cid: str = None, output_buffer: str = '') -> str:
+    tag = ''
     if cid is None:
+        tag='hamt'
+        with open('cat.log', 'a+') as f:
+            f.write(f'{tag}\n')
+            f.close()
         output_buffer += 'HAMT results\n'
-        xar, output_buffer = get_data_from_cid(HAMT_CID, output_buffer=output_buffer, tag='hamt')
+        xar, output_buffer = get_data_from_cid(HAMT_CID, output_buffer=output_buffer, tag=tag)
     else:
+        tag='zarr'
+        with open('cat.log', 'a+') as f:
+            f.write(f'{tag}\n')
+            f.close()
         output_buffer += 'Zarr results\n'
-        xar, output_buffer = get_data_from_cid(cid, output_buffer=output_buffer, tag='zarr')
+        xar, output_buffer = get_data_from_cid(cid, output_buffer=output_buffer, tag=tag)
     start = time.time()
-    _ = xar.sel(latitude=40.25, longitude=-120.25, time=slice('2005-01-01', '2010-12-31')).tp.values
+    span = tracer.start_span(f'{tag}:get_values')
+    with trace.use_span(span, end_on_exit=True):
+        _ = xar.sel(latitude=40.25, longitude=-120.25, time=slice('2005-01-01', '2010-12-31')).tp.values
+    # _ = xar.sel(latitude=40.25, longitude=-120.25, time=slice('2005-01-01', '2010-12-31')).tp.values
     output_buffer += f'Get Values time: {time.time() - start}\n'
 
     number_bytes = xar.sel(latitude=40.25, longitude=-120.25, time=slice('2005-01-01', '2010-12-31')).nbytes
@@ -127,12 +139,10 @@ def display_data(ds) -> None:
 def main():
     set_gateway_address(GATEWAY_ADDRESS)
     start = time.time()
-    output_buffer = ''
 
     collect_garbage()
     refresh_peer(HAMT_PEER)
-    _, output_buffer = read_data(output_buffer=output_buffer)
-
+    _, output_buffer = read_data()
 
     collect_garbage()
     refresh_peer(ZARR_PEER)
