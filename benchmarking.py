@@ -32,6 +32,7 @@ import ipldstore
 import ipldstore_v1
 
 HAMT_PEER = '/ip4/167.71.180.28/tcp/4001/p2p/12D3KooWFqzYkjofVzvo7MdYy4h3cZwixJC1f6NFWGYPELU7yBNy'
+PARTIAL_HAMT_PEER = '/ip4/172.31.94.153/tcp/4001/p2p/12D3KooWLuXsYf5sKz9ewuz5SF2WLwex6ervC4wQ5UUssQmscMWA'
 ZARR_PEER = '/ip4/45.55.32.80/tcp/4001/p2p/12D3KooWG7itEPAHut3xsVo7CwyD8sKeQXKgQizotNhPsToCssXQ'
 GATEWAY_ADDRESS = '/ip4/127.0.0.1/tcp/8082'
 HAMT_CID = 'bafyreicvczjixk5g7gs4rdd3sjvt7wab7mqoqcj6mqkh3fq7rnpoyc5ati'
@@ -98,31 +99,23 @@ def get_data_from_cid(cid, output_buffer, tag):
     with trace.use_span(span, end_on_exit=True):
         ds = xr.open_zarr(m, chunks=None)
     output_buffer += f'Time to open zarr: {time.time() - start}\n'
+
+    start = time.time()
+    span = tracer.start_span(f'{tag}:get_values')
+    with trace.use_span(span, end_on_exit=True):
+        _ = ds.sel(latitude=40.25, longitude=-120.25, time=slice('2005-01-01', '2010-12-31')).tp.values
+    output_buffer += f'Get Values time: {time.time() - start}\n'
     return ds, output_buffer
 
 
 def read_data(cid: str = None, output_buffer: str = '') -> str:
     tag = ''
     if cid is None:
-        tag='hamt'
-        with open('cat.log', 'a+') as f:
-            f.write(f'{tag}\n')
-            f.close()
         output_buffer += 'HAMT results\n'
-        xar, output_buffer = get_data_from_cid(HAMT_CID, output_buffer=output_buffer, tag=tag)
+        xar, output_buffer = get_data_from_cid(HAMT_CID, output_buffer=output_buffer, tag='hamt')
     else:
-        tag='zarr'
-        with open('cat.log', 'a+') as f:
-            f.write(f'{tag}\n')
-            f.close()
         output_buffer += 'Zarr results\n'
-        xar, output_buffer = get_data_from_cid(cid, output_buffer=output_buffer, tag=tag)
-    start = time.time()
-    span = tracer.start_span(f'{tag}:get_values')
-    with trace.use_span(span, end_on_exit=True):
-        _ = xar.sel(latitude=40.25, longitude=-120.25, time=slice('2005-01-01', '2010-12-31')).tp.values
-    # _ = xar.sel(latitude=40.25, longitude=-120.25, time=slice('2005-01-01', '2010-12-31')).tp.values
-    output_buffer += f'Get Values time: {time.time() - start}\n'
+        xar, output_buffer = get_data_from_cid(cid, output_buffer=output_buffer, tag='zarr')
 
     number_bytes = xar.sel(latitude=40.25, longitude=-120.25, time=slice('2005-01-01', '2010-12-31')).nbytes
     print(f'Number of bytes: {number_bytes}')
@@ -142,6 +135,7 @@ def main():
 
     collect_garbage()
     refresh_peer(HAMT_PEER)
+    # refresh_peer(PARTIAL_HAMT_PEER)
     _, output_buffer = read_data()
 
     collect_garbage()
