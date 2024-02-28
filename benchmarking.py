@@ -3,7 +3,7 @@ import time
 import json
 import requests
 import xarray as xr
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 # import nest_asyncio
 # nest_asyncio.apply()
 
@@ -38,6 +38,9 @@ GATEWAY_ADDRESS = '/ip4/127.0.0.1/tcp/8082'
 HAMT_CID = 'bafyreicvczjixk5g7gs4rdd3sjvt7wab7mqoqcj6mqkh3fq7rnpoyc5ati'
 ZARR_IPNS_KEY = 'k2k4r8l6plbm4r3ks757u8avo5n8t0ghszkwx3uu61cid363lx45n5kl'
 
+start_date = '2005-01-01'
+end_date = '2010-12-31'
+
 
 def set_gateway_address(value) -> None:
     """Sets IPFS node gateway address"""
@@ -70,21 +73,26 @@ def get_non_hamt_cid() -> str:
     return zarr_cid
 
 
-def get_data_from_cid(cid, output_buffer, tag):
-    if tag == 'hamt':
+def read_data(cid: str = None, output_buffer: str = ''):
+    if cid is None:
+        cid = HAMT_CID
+        tag = 'hamt'
         m = ipldstore.get_ipfs_mapper(
             host = 'http://0.0.0.0:5001',
             max_nodes_per_level = 10000,
             chunker = 'size-262144',
             should_async_get = True,
         )
+        output_buffer += 'HAMT results\n'
     else:
+        tag = 'zarr'
         m = ipldstore_v1.get_ipfs_mapper(
             host = 'http://0.0.0.0:5001',
             max_nodes_per_level = 10000,
             chunker = 'size-262144',
             should_async_get = True,
         )
+        output_buffer += 'Zarr results\n'
 
     start = time.time()
     span = tracer.start_span(f'{tag}:set_root')
@@ -103,30 +111,20 @@ def get_data_from_cid(cid, output_buffer, tag):
     start = time.time()
     span = tracer.start_span(f'{tag}:get_values')
     with trace.use_span(span, end_on_exit=True):
-        _ = ds.sel(latitude=40.25, longitude=-120.25, time=slice('2005-01-01', '2010-12-31')).tp.values
-    output_buffer += f'Get Values time: {time.time() - start}\n'
+        _ = ds.sel(latitude=40.25, longitude=-120.25, time=slice(start_date, end_date)).tp.values
+    get_time = time.time() - start
+    output_buffer += f'Get Values time: {get_time}\n'
+
+    number_bytes = ds.sel(latitude=40.25, longitude=-120.25, time=slice(start_date, end_date)).nbytes
+    print(f'Number of bytes: {number_bytes} | dl speed: {number_bytes / get_time / 1e3} KB/s')
     return ds, output_buffer
 
 
-def read_data(cid: str = None, output_buffer: str = '') -> str:
-    tag = ''
-    if cid is None:
-        output_buffer += 'HAMT results\n'
-        xar, output_buffer = get_data_from_cid(HAMT_CID, output_buffer=output_buffer, tag='hamt')
-    else:
-        output_buffer += 'Zarr results\n'
-        xar, output_buffer = get_data_from_cid(cid, output_buffer=output_buffer, tag='zarr')
-
-    number_bytes = xar.sel(latitude=40.25, longitude=-120.25, time=slice('2005-01-01', '2010-12-31')).nbytes
-    print(f'Number of bytes: {number_bytes}')
-    return xar, output_buffer
-
-
-def display_data(ds) -> None:
-    query = ds.sel(latitude=40.25, longitude=-120.25, time=slice('2005-01-01', '2010-12-31'))
-    plt.rcParams['figure.figsize'] = [14, 7]
-    plt.plot(query.time.values, query.tp.values)
-    plt.show()
+# def display_data(ds) -> None:
+#     query = ds.sel(latitude=40.25, longitude=-120.25, time=slice(start_date, end_date))
+#     plt.rcParams['figure.figsize'] = [14, 7]
+#     plt.plot(query.time.values, query.tp.values)
+#     plt.show()
 
 
 def main():
@@ -134,14 +132,14 @@ def main():
     start = time.time()
 
     collect_garbage()
-    refresh_peer(HAMT_PEER)
-    # refresh_peer(PARTIAL_HAMT_PEER)
+    # refresh_peer(HAMT_PEER)
+    refresh_peer(PARTIAL_HAMT_PEER)
     _, output_buffer = read_data()
 
-    collect_garbage()
-    refresh_peer(ZARR_PEER)
-    zarr_cid = get_non_hamt_cid()
-    _, output_buffer = read_data(zarr_cid, output_buffer=output_buffer)
+    # collect_garbage()
+    # refresh_peer(ZARR_PEER)
+    # zarr_cid = get_non_hamt_cid()
+    # _, output_buffer = read_data(zarr_cid, output_buffer=output_buffer)
 
     print(f'\nTotal time: {time.time() - start}')
     print(output_buffer)
